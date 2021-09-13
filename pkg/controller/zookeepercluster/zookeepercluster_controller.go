@@ -139,7 +139,9 @@ func (r *ReconcileZookeeperCluster) Reconcile(request reconcile.Request) (reconc
 		// Error reading the object - requeue the request.
 		return reconcile.Result{}, err
 	}
+	// TODO 检查是否有配置变动
 	changed := instance.WithDefaults()
+	// TODO 是否是强制重启请求
 	if instance.GetTriggerRollingRestart() {
 		r.log.Info("Restarting zookeeper cluster")
 		annotationkey, annotationvalue := getRollingRestartAnnotation()
@@ -158,8 +160,11 @@ func (r *ReconcileZookeeperCluster) Reconcile(request reconcile.Request) (reconc
 		return reconcile.Result{Requeue: true}, nil
 	}
 	for _, fun := range []reconcileFun{
+		// TODO PVC清理函数
 		r.reconcileFinalizers,
+		// TODO ZK配置文件生成&更新
 		r.reconcileConfigMap,
+		// TODO STS创建与更新
 		r.reconcileStatefulSet,
 		r.reconcileClientService,
 		r.reconcileHeadlessService,
@@ -220,6 +225,7 @@ func (r *ReconcileZookeeperCluster) reconcileStatefulSet(instance *zookeeperv1be
 	if instance.Status.IsClusterInUpgradeFailedState() {
 		return nil
 	}
+	// 1. 初始化serviceAccount
 	if instance.Spec.Pod.ServiceAccountName != "default" {
 		serviceAccount := zk.MakeServiceAccount(instance)
 		if err = controllerutil.SetControllerReference(instance, serviceAccount, r.scheme); err != nil {
@@ -245,7 +251,9 @@ func (r *ReconcileZookeeperCluster) reconcileStatefulSet(instance *zookeeperv1be
 			}
 		}
 	}
+	// 2. 创建STS
 	sts := zk.MakeStatefulSet(instance)
+	// TODO 验证namespace是否一致并设置OwnerReference关系
 	if err = controllerutil.SetControllerReference(instance, sts, r.scheme); err != nil {
 		return err
 	}
@@ -260,6 +268,7 @@ func (r *ReconcileZookeeperCluster) reconcileStatefulSet(instance *zookeeperv1be
 			"StatefulSet.Name", sts.Name)
 		// label the RV of the zookeeperCluster when creating the sts
 		sts.Labels["owner-rv"] = instance.ResourceVersion
+		// TODO 不存在则创建
 		err = r.client.Create(context.TODO(), sts)
 		if err != nil {
 			return err
@@ -295,12 +304,15 @@ func (r *ReconcileZookeeperCluster) reconcileStatefulSet(instance *zookeeperv1be
 
 			data := "CLUSTER_SIZE=" + strconv.Itoa(int(newSTSSize))
 			r.log.Info("Updating Cluster Size.", "New Data:", data, "Version", version)
+			// TODO 更新用于通知AdminServer的数据
 			r.zkClient.UpdateNode(path, data, version)
 		}
+		// TODO 更新STS
 		err = r.updateStatefulSet(instance, foundSts, sts)
 		if err != nil {
 			return err
 		}
+		// TODO 更新ZookeeperCluster状态
 		return r.upgradeStatefulSet(instance, foundSts)
 	}
 }
@@ -311,6 +323,7 @@ func (r *ReconcileZookeeperCluster) updateStatefulSet(instance *zookeeperv1beta1
 		"StatefulSet.Name", foundSts.Name)
 	zk.SyncStatefulSet(foundSts, sts)
 
+	// TODO 更新STS
 	err = r.client.Update(context.TODO(), foundSts)
 	if err != nil {
 		return err
@@ -730,6 +743,7 @@ func (r *ReconcileZookeeperCluster) yamlConfigMap(instance *zookeeperv1beta1.Zoo
 
 func (r *ReconcileZookeeperCluster) reconcileFinalizers(instance *zookeeperv1beta1.ZookeeperCluster) (err error) {
 	if instance.Spec.Persistence != nil && instance.Spec.Persistence.VolumeReclaimPolicy != zookeeperv1beta1.VolumeReclaimPolicyDelete {
+		// TODO 如果卷回收策略不是Delete，则直接退出
 		return nil
 	}
 	if instance.DeletionTimestamp.IsZero() {
@@ -739,8 +753,10 @@ func (r *ReconcileZookeeperCluster) reconcileFinalizers(instance *zookeeperv1bet
 				return err
 			}
 		}
+		// TODO 清理多余的PVC
 		return r.cleanupOrphanPVCs(instance)
 	} else {
+		// TODO 有DeleteTime，说明资源已删除，需要释放所有PVC, 然后删除Finalizers触发资源真正删除
 		if utils.ContainsString(instance.ObjectMeta.Finalizers, utils.ZkFinalizer) {
 			if err = r.cleanUpAllPVCs(instance); err != nil {
 				return err

@@ -98,6 +98,7 @@ func MakeStatefulSet(z *v1beta1.ZookeeperCluster) *appsv1.StatefulSet {
 					),
 					Annotations: z.Spec.Pod.Annotations,
 				},
+				// TODO ZK容器
 				Spec: makeZkPodSpec(z, extraVolumes),
 			},
 			VolumeClaimTemplates: pvcs,
